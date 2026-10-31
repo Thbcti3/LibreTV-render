@@ -1,4 +1,5 @@
 import type { SourceConfig } from './types';
+import { BUNDLED_SOURCES } from './bundled-sources';
 
 /**
  * 部署者通过 DEFAULT_SOURCES 环境变量预置的采集站。
@@ -7,7 +8,8 @@ import type { SourceConfig } from './types';
  */
 export function getEnvSources(): SourceConfig[] {
   const raw = process.env.DEFAULT_SOURCES;
-  if (!raw || !raw.trim()) return [];
+  // 未配置环境变量时回退到内置源（Cloudflare/Serverless 部署用）
+  if (!raw || !raw.trim()) return BUNDLED_SOURCES;
   try {
     const parsed: unknown = JSON.parse(raw);
     if (!Array.isArray(parsed)) throw new Error('必须是 JSON 数组');

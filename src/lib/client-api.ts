@@ -130,15 +130,44 @@ export const api = {
   ): Promise<SearchResponse> => {
     const signal = opts?.signal;
     const onSource = opts?.onSource;
-    if (!onSource) {
-      return request<SearchResponse>('/api/search', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ wd, sources, filterAdult }),
-        signal,
-      });
-    }
-    return searchStream(wd, sources, filterAdult, onSource, signal);
+
+    const runOne = (group: SourceConfig[]) => {
+      if (!onSource) {
+        return request<SearchResponse>('/api/search', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ wd, sources: group, filterAdult }),
+          signal,
+        });
+      }
+      return searchStream(wd, group, filterAdult, onSource, signal);
+    };
+
+    // 分片：Cloudflare Workers 免费版单请求有子请求数/并发限制，源多时拆成多批
+    const CHUNK = 18;
+    const PARALLEL = 3;
+    if (sources.length <= CHUNK) return runOne(sources);
+
+    const groups: SourceConfig[][] = [];
+    for (let i = 0; i < sources.length; i += CHUNK) groups.push(sources.slice(i, i + CHUNK));
+
+    const merged: SearchResponse = { list: [], failures: [] };
+    let cursor = 0;
+    const workers = Array.from({ length: Math.min(PARALLEL, groups.length) }, async () => {
+      for (;;) {
+        const idx = cursor++;
+        if (idx >= groups.length) return;
+        try {
+          const part = await runOne(groups[idx]);
+          merged.list.push(...part.list);
+          merged.failures.push(...part.failures);
+        } catch (err) {
+          if (signal?.aborted) throw err;
+        }
+      }
+    });
+    await Promise.all(workers);
+    return merged;
   },
 
   detail: (id: string, source: SourceConfig, signal?: AbortSignal) => {
