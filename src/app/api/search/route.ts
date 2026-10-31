@@ -159,6 +159,12 @@ const SEARCH_CONCURRENCY = (() => {
 })();
 
 /** 限流 map：保持下标顺序回填 */
+/** 单次搜索最多使用的源数量（Cloudflare 免费版单请求最多 50 个子请求，需压到 24） */
+const SEARCH_MAX_SOURCES = (() => {
+  const n = parseInt(process.env.SEARCH_MAX_SOURCES || '120', 10);
+  return Number.isFinite(n) && n > 0 ? Math.min(n, 120) : 120;
+})();
+
 async function mapLimit<T, R>(items: T[], limit: number, worker: (item: T, index: number) => Promise<R>): Promise<R[]> {
   const out = new Array<R>(items.length);
   let next = 0;
@@ -228,7 +234,7 @@ export async function POST(req: Request) {
   if (!Array.isArray(body.sources) || body.sources.length === 0) {
     return NextResponse.json({ error: '请至少选择一个点播源' }, { status: 400 });
   }
-  const sources = body.sources.slice(0, 120);
+  const sources = body.sources.slice(0, SEARCH_MAX_SOURCES);
   const startedAt = Date.now();
   const nameByKey = new Map(sources.map((s) => [s.key, s.name]));
   const nameOf = (key: string) => nameByKey.get(key) || key;
